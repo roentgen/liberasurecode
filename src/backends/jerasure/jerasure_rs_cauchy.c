@@ -52,20 +52,20 @@ struct ec_backend_op_stubs jerasure_rs_cauchy_ops;
 struct ec_backend jerasure_rs_cauchy;
 struct ec_backend_common backend_jerasure_rs_cauchy;
 
-typedef int* (*cauchy_original_coding_matrix_func)(int, int, int);
-typedef int* (*jerasure_matrix_to_bitmatrix_func)(int, int, int, int *);
+typedef int* (*cauchy_original_coding_matrix_func)(gf2_t*, int, int, int);
+typedef int* (*jerasure_matrix_to_bitmatrix_func)(gf2_t*, int, int, int, int *);
 typedef int** (*jerasure_smart_bitmatrix_to_schedule_func)
     (int, int, int, int *);
 typedef void (*jerasure_bitmatrix_encode_func)
-    (int, int, int, int *, char **, char **, int, int);
+    (gf2_t*, int, int, int, int *, char **, char **, int, int);
 typedef int (*jerasure_bitmatrix_decode_func)
-    (int, int, int, int *, int, int *,char **, char **, int, int);
+    (gf2_t*, int, int, int, int *, int, int *,char **, char **, int, int);
 typedef int * (*jerasure_erasures_to_erased_func)(int, int, int *);
 typedef int (*jerasure_make_decoding_bitmatrix_func)
     (int, int, int, int *, int *, int *, int *);
 typedef void (*jerasure_bitmatrix_dotprod_func)
-    (int, int, int *, int *, int,char **, char **, int, int);
-typedef void (*galois_uninit_field_func)(int);
+    (gf2_t*, int, int, int *, int *, int,char **, char **, int, int);
+typedef void (*galois_uninit_field_func)(gf2_t*, int);
 
 /*
  * ToDo (KMG): Should we make this a parameter, or is that
@@ -96,6 +96,7 @@ struct jerasure_rs_cauchy_descriptor {
     jerasure_bitmatrix_dotprod_func jerasure_bitmatrix_dotprod;
 
     /* fields needed to hold state */
+    gf2_t* g;
     int *matrix;
     int *bitmatrix;
     int **schedule;
@@ -114,7 +115,7 @@ static int jerasure_rs_cauchy_encode(void *desc, char **data, char **parity,
         (struct jerasure_rs_cauchy_descriptor*) desc;
 
     /* FIXME - make jerasure_bitmatrix_encode return a value */
-    jerasure_desc->jerasure_bitmatrix_encode(jerasure_desc->k, jerasure_desc->m,
+    jerasure_desc->jerasure_bitmatrix_encode(jerasure_desc->g, jerasure_desc->k, jerasure_desc->m,
                                 jerasure_desc->w, jerasure_desc->bitmatrix,
                                 data, parity, blocksize,
                                 PYECC_CAUCHY_PACKETSIZE);
@@ -128,7 +129,8 @@ static int jerasure_rs_cauchy_decode(void *desc, char **data, char **parity,
     struct jerasure_rs_cauchy_descriptor *jerasure_desc = 
         (struct jerasure_rs_cauchy_descriptor*)desc;
 
-    return jerasure_desc->jerasure_bitmatrix_decode(jerasure_desc->k, 
+    return jerasure_desc->jerasure_bitmatrix_decode(jerasure_desc->g,
+                                             jerasure_desc->k,
                                              jerasure_desc->m, 
                                              jerasure_desc->w, 
                                              jerasure_desc->bitmatrix, 
@@ -170,7 +172,7 @@ static int jerasure_rs_cauchy_reconstruct(void *desc, char **data, char **parity
         if (ret == 0) {
             decoding_row = decoding_matrix + (destination_idx * k * w * w);
    
-            jerasure_desc->jerasure_bitmatrix_dotprod(jerasure_desc->k, jerasure_desc->w, 
+            jerasure_desc->jerasure_bitmatrix_dotprod(jerasure_desc->g, jerasure_desc->k, jerasure_desc->w, 
                                    decoding_row, dm_ids, destination_idx,
                                    data, parity, blocksize, PYECC_CAUCHY_PACKETSIZE);
         } else {
@@ -188,7 +190,7 @@ static int jerasure_rs_cauchy_reconstruct(void *desc, char **data, char **parity
          * fine for most cases.  We can adjust the decoding matrix like we
          * did with ISA-L.
          */
-        jerasure_desc->jerasure_bitmatrix_decode(k, m, w,
+        jerasure_desc->jerasure_bitmatrix_decode(jerasure_desc->g, k, m, w,
                                              jerasure_desc->bitmatrix, 
                                              0, 
                                              missing_idxs,
@@ -281,12 +283,16 @@ static void * jerasure_rs_cauchy_init(struct ec_backend_args *args,
     desc->jerasure_erasures_to_erased = jerasure_erasures_to_erased;
     desc->galois_uninit_field = (galois_uninit_field_func)galois_uninit_field;
 
-    /* setup the Cauchy matrices and schedules */
-    desc->matrix = desc->cauchy_original_coding_matrix(k, m, w);
-    if (NULL == desc->matrix) {
+    desc->g = galois_init_empty();
+    if (NULL == desc->g) {
         goto error;
     }
-    desc->bitmatrix = desc->jerasure_matrix_to_bitmatrix(k, m, w, desc->matrix);
+    /* setup the Cauchy matrices and schedules */
+    desc->matrix = desc->cauchy_original_coding_matrix(desc->g, k, m, w);
+    if (NULL == desc->matrix) {
+        goto cauchy_error;
+    }
+    desc->bitmatrix = desc->jerasure_matrix_to_bitmatrix(desc->g, k, m, w, desc->matrix);
     if (NULL == desc->bitmatrix) {
         goto bitmatrix_error;
     }
@@ -301,6 +307,8 @@ schedule_error:
     free(desc->bitmatrix);
 bitmatrix_error:
     free(desc->matrix);
+cauchy_error:
+    galois_destroy(desc->g);
 error:
     free(desc);
     return NULL;
@@ -339,8 +347,9 @@ static void free_rs_cauchy_desc(
      * for 32. Fortunately we can safely uninit any value; if it
      * wasn't inited it will be ignored.
      */
-    jerasure_desc->galois_uninit_field(jerasure_desc->w);
-    jerasure_desc->galois_uninit_field(32);
+    jerasure_desc->galois_uninit_field(jerasure_desc->g, jerasure_desc->w);
+    jerasure_desc->galois_uninit_field(jerasure_desc->g, 32);
+    galois_destroy(jerasure_desc->g);
     free(jerasure_desc->matrix);
     free(jerasure_desc->bitmatrix);
 

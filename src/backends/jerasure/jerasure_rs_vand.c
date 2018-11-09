@@ -52,13 +52,13 @@ struct ec_backend_op_stubs jerasure_rs_vand_ops;
 struct ec_backend jerasure_rs_vand;
 struct ec_backend_common backend_jerasure_rs_vand;
 
-typedef int* (*reed_sol_vandermonde_coding_matrix_func)(int, int, int);
-typedef void (*jerasure_matrix_encode_func)(int, int, int, int*, char **, char **, int); 
-typedef int (*jerasure_matrix_decode_func)(int, int, int, int *, int, int*, char **, char **, int);
-typedef int (*jerasure_make_decoding_matrix_func)(int, int, int, int *, int *, int *, int *);
+typedef int* (*reed_sol_vandermonde_coding_matrix_func)(gf2_t*, int, int, int);
+typedef void (*jerasure_matrix_encode_func)(gf2_t*, int, int, int, int*, char **, char **, int); 
+typedef int (*jerasure_matrix_decode_func)(gf2_t*, int, int, int, int *, int, int*, char **, char **, int);
+typedef int (*jerasure_make_decoding_matrix_func)(gf2_t*, int, int, int, int *, int *, int *, int *);
 typedef int * (*jerasure_erasures_to_erased_func)(int, int, int *);
-typedef void (*jerasure_matrix_dotprod_func)(int, int, int *,int *, int,char **, char **, int);
-typedef void (*galois_uninit_field_func)(int);
+typedef void (*jerasure_matrix_dotprod_func)(gf2_t*, int, int, int *,int *, int,char **, char **, int);
+typedef void (*galois_uninit_field_func)(gf2_t*, int);
 
 struct jerasure_rs_vand_descriptor {
     /* calls required for init */
@@ -79,6 +79,7 @@ struct jerasure_rs_vand_descriptor {
     jerasure_matrix_dotprod_func jerasure_matrix_dotprod;
 
     /* fields needed to hold state */
+    gf2_t* g;
     int *matrix;
     int k;
     int m;
@@ -92,7 +93,7 @@ static int jerasure_rs_vand_encode(void *desc, char **data, char **parity,
         (struct jerasure_rs_vand_descriptor*) desc;
 
     /* FIXME - make jerasure_matrix_encode return a value */
-    jerasure_desc->jerasure_matrix_encode(jerasure_desc->k, jerasure_desc->m,
+    jerasure_desc->jerasure_matrix_encode(jerasure_desc->g, jerasure_desc->k, jerasure_desc->m,
             jerasure_desc->w, jerasure_desc->matrix, data, parity, blocksize);
 
     return 0;
@@ -105,7 +106,7 @@ static int jerasure_rs_vand_decode(void *desc, char **data, char **parity,
         (struct jerasure_rs_vand_descriptor*)desc;
 
     /* FIXME - make jerasure_matrix_decode return a value */
-    jerasure_desc->jerasure_matrix_decode(jerasure_desc->k,
+    jerasure_desc->jerasure_matrix_decode(jerasure_desc->g, jerasure_desc->k,
             jerasure_desc->m, jerasure_desc->w,
             jerasure_desc->matrix, 1, missing_idxs, data, parity, blocksize);
 
@@ -134,14 +135,14 @@ static int jerasure_rs_vand_reconstruct(void *desc, char **data, char **parity,
             goto out;
         }
 
-        ret = jerasure_desc->jerasure_make_decoding_matrix(jerasure_desc->k,
+        ret = jerasure_desc->jerasure_make_decoding_matrix(jerasure_desc->g, jerasure_desc->k,
                 jerasure_desc->m, jerasure_desc->w, jerasure_desc->matrix,
                 erased, decoding_matrix, dm_ids);
 
         decoding_row = decoding_matrix + (destination_idx * jerasure_desc->k);
     
         if (ret == 0) {
-            jerasure_desc->jerasure_matrix_dotprod(jerasure_desc->k,
+            jerasure_desc->jerasure_matrix_dotprod(jerasure_desc->g, jerasure_desc->k,
                     jerasure_desc->w, decoding_row, dm_ids, destination_idx,
                     data, parity, blocksize);
         } else {
@@ -159,7 +160,7 @@ static int jerasure_rs_vand_reconstruct(void *desc, char **data, char **parity,
          * fine for most cases.  We can adjust the decoding matrix like we
          * did with ISA-L.
          */
-        jerasure_desc->jerasure_matrix_decode(jerasure_desc->k,
+        jerasure_desc->jerasure_matrix_decode(jerasure_desc->g, jerasure_desc->k,
                         jerasure_desc->m, jerasure_desc->w,
                         jerasure_desc->matrix, 1, missing_idxs, data, parity, blocksize);
         goto parity_reconstr_out;
@@ -243,8 +244,13 @@ static void * jerasure_rs_vand_init(struct ec_backend_args *args,
     desc->reed_sol_vandermonde_coding_matrix = reed_sol_vandermonde_coding_matrix;
     desc->galois_uninit_field = (galois_uninit_field_func)galois_uninit_field;
 
+    desc->g = galois_init_empty();
+    if (NULL == desc->g) {
+        goto error;
+    }
+
     desc->matrix = desc->reed_sol_vandermonde_coding_matrix(
-            desc->k, desc->m, desc->w);
+            desc->g, desc->k, desc->m, desc->w);
     if (NULL == desc->matrix) {
         goto error;
     }
@@ -287,8 +293,9 @@ static int jerasure_rs_vand_exit(void *desc)
      * for 32. Fortunately we can safely uninit any value; if it
      * wasn't inited it will be ignored.
      */
-    jerasure_desc->galois_uninit_field(jerasure_desc->w);
-    jerasure_desc->galois_uninit_field(32);
+    jerasure_desc->galois_uninit_field(jerasure_desc->g, jerasure_desc->w);
+    jerasure_desc->galois_uninit_field(jerasure_desc->g, 32);
+    galois_destroy(jerasure_desc->g);
     free(jerasure_desc->matrix);
     free(jerasure_desc);
 
