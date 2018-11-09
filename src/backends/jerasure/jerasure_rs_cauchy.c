@@ -28,6 +28,8 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <jerasure.h>
+#include <cauchy.h>
 
 #include "erasurecode.h"
 #include "erasurecode_backend.h"
@@ -268,87 +270,16 @@ static void * jerasure_rs_cauchy_init(struct ec_backend_args *args,
         }
     }
 
-    /*
-     * ISO C forbids casting a void* to a function pointer.
-     * Since dlsym return returns a void*, we use this union to
-     * "transform" the void* to a function pointer.
-     */
-    union {
-        cauchy_original_coding_matrix_func  initp;
-        jerasure_matrix_to_bitmatrix_func matrixtobitmatrixp;
-        jerasure_smart_bitmatrix_to_schedule_func matrixschedulep;
-        galois_uninit_field_func uninitp;
-        jerasure_bitmatrix_encode_func encodep;
-        jerasure_bitmatrix_decode_func decodep;
-        jerasure_erasures_to_erased_func erasedp; 
-        jerasure_make_decoding_bitmatrix_func decodematrixp;
-        jerasure_bitmatrix_dotprod_func dotprodp;
-        void *vptr;
-    } func_handle = {.vptr = NULL};
-    
     /* fill in function addresses */
-    func_handle.vptr = NULL;
-    func_handle.vptr = dlsym(backend_sohandle, "jerasure_bitmatrix_encode");
-    desc->jerasure_bitmatrix_encode = func_handle.encodep;
-    if (NULL == desc->jerasure_bitmatrix_encode) {
-        goto error; 
-    }
-  
-    func_handle.vptr = NULL;
-    func_handle.vptr = dlsym(backend_sohandle, "jerasure_bitmatrix_decode");
-    desc->jerasure_bitmatrix_decode = func_handle.decodep;
-    if (NULL == desc->jerasure_bitmatrix_decode) {
-        goto error; 
-    }
-  
-    func_handle.vptr = NULL;
-    func_handle.vptr = dlsym(backend_sohandle, "cauchy_original_coding_matrix");
-    desc->cauchy_original_coding_matrix = func_handle.initp;
-    if (NULL == desc->cauchy_original_coding_matrix) {
-        goto error; 
-    }
-    
-    func_handle.vptr = NULL;
-    func_handle.vptr = dlsym(backend_sohandle, "jerasure_matrix_to_bitmatrix");
-    desc->jerasure_matrix_to_bitmatrix = func_handle.matrixtobitmatrixp;
-    if (NULL == desc->jerasure_matrix_to_bitmatrix) {
-        goto error; 
-    }
-    
-    func_handle.vptr = NULL;
-    func_handle.vptr = dlsym(backend_sohandle, "jerasure_smart_bitmatrix_to_schedule");
-    desc->jerasure_smart_bitmatrix_to_schedule = func_handle.matrixschedulep;
-    if (NULL == desc->jerasure_smart_bitmatrix_to_schedule) {
-        goto error; 
-    }
-    
-    func_handle.vptr = NULL;
-    func_handle.vptr = dlsym(backend_sohandle, "jerasure_make_decoding_bitmatrix");
-    desc->jerasure_make_decoding_bitmatrix = func_handle.decodematrixp;
-    if (NULL == desc->jerasure_make_decoding_bitmatrix) {
-        goto error; 
-    }
-    
-    func_handle.vptr = NULL;
-    func_handle.vptr = dlsym(backend_sohandle, "jerasure_bitmatrix_dotprod");
-    desc->jerasure_bitmatrix_dotprod = func_handle.dotprodp;
-    if (NULL == desc->jerasure_bitmatrix_dotprod) {
-        goto error; 
-    }
-  
-    func_handle.vptr = NULL;
-    func_handle.vptr = dlsym(backend_sohandle, "jerasure_erasures_to_erased");
-    desc->jerasure_erasures_to_erased = func_handle.erasedp;
-    if (NULL == desc->jerasure_erasures_to_erased) {
-        goto error; 
-    } 
-
-    func_handle.vptr = NULL;
-    func_handle.vptr = dlsym(backend_sohandle, "galois_uninit_field");
-    desc->galois_uninit_field = func_handle.uninitp;
-    if (NULL == desc->galois_uninit_field) {
-        goto error;
-    }
+    desc->jerasure_bitmatrix_encode = jerasure_bitmatrix_encode;
+    desc->jerasure_bitmatrix_decode = jerasure_bitmatrix_decode;
+    desc->cauchy_original_coding_matrix = cauchy_original_coding_matrix;
+    desc->jerasure_matrix_to_bitmatrix = jerasure_matrix_to_bitmatrix;
+    desc->jerasure_smart_bitmatrix_to_schedule = jerasure_smart_bitmatrix_to_schedule;
+    desc->jerasure_make_decoding_bitmatrix = jerasure_make_decoding_bitmatrix;
+    desc->jerasure_bitmatrix_dotprod = jerasure_bitmatrix_dotprod;
+    desc->jerasure_erasures_to_erased = jerasure_erasures_to_erased;
+    desc->galois_uninit_field = (galois_uninit_field_func)galois_uninit_field;
 
     /* setup the Cauchy matrices and schedules */
     desc->matrix = desc->cauchy_original_coding_matrix(k, m, w);

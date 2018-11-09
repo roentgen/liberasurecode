@@ -28,6 +28,8 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <jerasure.h>
+#include <reed_sol.h>
 
 #include "erasurecode.h"
 #include "erasurecode_backend.h"
@@ -232,98 +234,40 @@ static void * jerasure_rs_vand_init(struct ec_backend_args *args,
         }
      }
 
-     /*
-     * ISO C forbids casting a void* to a function pointer.
-     * Since dlsym return returns a void*, we use this union to
-     * "transform" the void* to a function pointer.
-     */
-    union {
-        reed_sol_vandermonde_coding_matrix_func initp;
-        galois_uninit_field_func uninitp;
-        jerasure_matrix_encode_func encodep;
-        jerasure_matrix_decode_func decodep;
-        jerasure_make_decoding_matrix_func decodematrixp;
-        jerasure_erasures_to_erased_func erasep;
-        jerasure_matrix_dotprod_func dotprodp;
-        void *vptr;
-    } func_handle = {.vptr = NULL};
-
-
     /* fill in function addresses */
-    func_handle.vptr = NULL;
-    func_handle.vptr = dlsym(backend_sohandle, "jerasure_matrix_encode");
-    desc->jerasure_matrix_encode = func_handle.encodep;
-    if (NULL == desc->jerasure_matrix_encode) {
-        goto error; 
-    }
-  
-    func_handle.vptr = NULL;
-    func_handle.vptr = dlsym(backend_sohandle, "jerasure_matrix_decode");
-    desc->jerasure_matrix_decode = func_handle.decodep;
-    if (NULL == desc->jerasure_matrix_decode) {
-        goto error; 
-    }
-  
-    func_handle.vptr = NULL;
-    func_handle.vptr = dlsym(backend_sohandle, "jerasure_make_decoding_matrix");
-    desc->jerasure_make_decoding_matrix = func_handle.decodematrixp;
-    if (NULL == desc->jerasure_make_decoding_matrix) {
-        goto error; 
-    }
-  
-    func_handle.vptr = NULL;
-    func_handle.vptr = dlsym(backend_sohandle, "jerasure_matrix_dotprod");
-    desc->jerasure_matrix_dotprod = func_handle.dotprodp;
-    if (NULL == desc->jerasure_matrix_dotprod) {
-        goto error; 
-    }
-  
-    func_handle.vptr = NULL;
-    func_handle.vptr = dlsym(backend_sohandle, "jerasure_erasures_to_erased");
-    desc->jerasure_erasures_to_erased = func_handle.erasep;
-    if (NULL == desc->jerasure_erasures_to_erased) {
-        goto error; 
-    }
- 
-    func_handle.vptr = NULL;
-    func_handle.vptr = dlsym(backend_sohandle, "reed_sol_vandermonde_coding_matrix");
-    desc->reed_sol_vandermonde_coding_matrix = func_handle.initp;
-    if (NULL == desc->reed_sol_vandermonde_coding_matrix) {
-        goto error; 
-    }
-
-    func_handle.vptr = NULL;
-    func_handle.vptr = dlsym(backend_sohandle, "galois_uninit_field");
-    desc->galois_uninit_field = func_handle.uninitp;
-    if (NULL == desc->galois_uninit_field) {
-        goto error;
-    }
+    desc->jerasure_matrix_encode = jerasure_matrix_encode;
+    desc->jerasure_matrix_decode = jerasure_matrix_decode;
+    desc->jerasure_make_decoding_matrix = jerasure_make_decoding_matrix;
+    desc->jerasure_matrix_dotprod = jerasure_matrix_dotprod;
+    desc->jerasure_erasures_to_erased = jerasure_erasures_to_erased;
+    desc->reed_sol_vandermonde_coding_matrix = reed_sol_vandermonde_coding_matrix;
+    desc->galois_uninit_field = (galois_uninit_field_func)galois_uninit_field;
 
     desc->matrix = desc->reed_sol_vandermonde_coding_matrix(
             desc->k, desc->m, desc->w);
     if (NULL == desc->matrix) {
-        goto error; 
+        goto error;
     }
 
     return desc;
 
 error:
     free(desc);
-    
+
     return NULL;
 }
 
 /**
- * Return the element-size, which is the number of bits stored 
- * on a given device, per codeword.  For Vandermonde, this is 
- * 'w'.  For somthing like cauchy, this is packetsize * w. 
- * 
+ * Return the element-size, which is the number of bits stored
+ * on a given device, per codeword.  For Vandermonde, this is
+ * 'w'.  For somthing like cauchy, this is packetsize * w.
+ *
  * Returns the size in bits!
  */
 static int
 jerasure_rs_vand_element_size(void* desc)
 {
-    struct jerasure_rs_vand_descriptor *jerasure_desc = 
+    struct jerasure_rs_vand_descriptor *jerasure_desc =
         (struct jerasure_rs_vand_descriptor*)desc;
 
     /* Note that cauchy will return pyeclib_handle->w * PYECC_CAUCHY_PACKETSIZE * 8 */

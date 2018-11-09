@@ -44,7 +44,6 @@ typedef struct alg_sig_s
   int gf_w;
   int sig_len;
   struct jerasure_mult_routines mult_routines;
-  void *jerasure_sohandle;
   int *tbl1_l;
   int *tbl1_r;
   int *tbl2_l;

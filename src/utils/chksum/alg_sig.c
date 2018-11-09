@@ -27,52 +27,27 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#define GALOIS_SINGLE_MULTIPLY "galois_single_multiply"
-#define GALOIS_UNINIT "galois_uninit_field"
+#include <jerasure.h>
+#define GALOIS_SINGLE_MULTIPLY galois_single_multiply
+#define GALOIS_UNINIT galois_uninit_field
 
 int valid_gf_w[] = { 8, 16, -1 };
 int valid_pairs[][2] = { { 8, 32}, {16, 32}, {16, 64}, {-1, -1} };
 
-galois_single_multiply_func get_galois_multi_func(void *handle) {
-    /*
-     * ISO C forbids casting a void* to a function pointer.
-     * Since dlsym return returns a void*, we use this union to
-     * "transform" the void* to a function pointer.
-     */
-    union {
-        galois_single_multiply_func fptr;
-        void *vptr;
-    } func_handle = {.vptr = NULL};
-    func_handle.vptr = dlsym(handle,  GALOIS_SINGLE_MULTIPLY);
-    return func_handle.fptr;
+galois_single_multiply_func get_galois_multi_func() {
+    return (galois_single_multiply_func)GALOIS_SINGLE_MULTIPLY;
 }
 
 void stub_galois_uninit_field(int w){}
 
-galois_uninit_field_func get_galois_uninit_func(void *handle) {
-    /*
-     * ISO C forbids casting a void* to a function pointer.
-     * Since dlsym return returns a void*, we use this union to
-     * "transform" the void* to a function pointer.
-     */
-    union {
-        galois_uninit_field_func fptr;
-        void *vptr;
-    } func_handle = {.vptr = NULL};
-    func_handle.vptr = dlsym(handle,  GALOIS_UNINIT);
-    return func_handle.fptr;
+galois_uninit_field_func get_galois_uninit_func() {
+    return (galois_uninit_field_func)GALOIS_UNINIT;
 }
 
-
-void *get_jerasure_sohandle()
+int load_gf_functions(struct jerasure_mult_routines *routines)
 {
-    return dlopen(JERASURE_SONAME, RTLD_LAZY | RTLD_LOCAL);
-}
-
-int load_gf_functions(void *sohandle, struct jerasure_mult_routines *routines)
-{
-    routines->galois_single_multiply = get_galois_multi_func(sohandle);
-    routines->galois_uninit_field = get_galois_uninit_func(sohandle);
+    routines->galois_single_multiply = get_galois_multi_func();
+    routines->galois_uninit_field = get_galois_uninit_func();
     if (NULL == routines->galois_single_multiply) {
       return -1;
     }
@@ -93,7 +68,7 @@ int load_gf_functions(void *sohandle, struct jerasure_mult_routines *routines)
 }
 
 static
-alg_sig_t *init_alg_sig_w8(void *jerasure_sohandle, int sig_len)
+alg_sig_t *init_alg_sig_w8(int sig_len)
 {
     alg_sig_t *alg_sig_handle;
     int num_gf_lr_table_syms;
@@ -107,9 +82,7 @@ alg_sig_t *init_alg_sig_w8(void *jerasure_sohandle, int sig_len)
       return NULL;
     }
 
-    alg_sig_handle->jerasure_sohandle = jerasure_sohandle;
-
-    if (load_gf_functions(alg_sig_handle->jerasure_sohandle, &(alg_sig_handle->mult_routines)) < 0) {
+    if (load_gf_functions(&(alg_sig_handle->mult_routines)) < 0) {
       free(alg_sig_handle);
       return NULL;
     }
@@ -150,7 +123,7 @@ alg_sig_t *init_alg_sig_w8(void *jerasure_sohandle, int sig_len)
 }
 
 static
-alg_sig_t *init_alg_sig_w16(void *jerasure_sohandle, int sig_len)
+alg_sig_t *init_alg_sig_w16(int sig_len)
 {
     alg_sig_t *alg_sig_handle;
     int num_gf_lr_table_syms;
@@ -159,18 +132,12 @@ alg_sig_t *init_alg_sig_w16(void *jerasure_sohandle, int sig_len)
     int alpha = 2, beta = 4, gamma = 8;
     int num_components = sig_len / w;
 
-    if (NULL == jerasure_sohandle) {
-        return NULL;
-    }
-    
     alg_sig_handle = (alg_sig_t *)malloc(sizeof(alg_sig_t));
     if (NULL == alg_sig_handle) {
       return NULL;
     }
 
-    alg_sig_handle->jerasure_sohandle = jerasure_sohandle;
-
-    if (load_gf_functions(alg_sig_handle->jerasure_sohandle, &(alg_sig_handle->mult_routines)) < 0) {
+    if (load_gf_functions(&(alg_sig_handle->mult_routines)) < 0) {
       free(alg_sig_handle);
       return NULL;
     }
@@ -216,15 +183,9 @@ alg_sig_t *init_alg_sig_w16(void *jerasure_sohandle, int sig_len)
 alg_sig_t *init_alg_sig(int sig_len, int gf_w)
 {
   int i=0;
-  void *jerasure_sohandle = get_jerasure_sohandle();
-
-  if (NULL == jerasure_sohandle) {
-    fprintf (stderr, "Could not open Jerasure backend.  Install Jerasure or fix LD_LIBRARY_PATH.  Passing.\n");
-    return NULL;
-  }
 
   while (valid_pairs[i][0] > -1) {
-    if (gf_w == valid_pairs[i][0] && 
+    if (gf_w == valid_pairs[i][0] &&
         sig_len == valid_pairs[i][1]) {
       break;
     }
@@ -236,9 +197,9 @@ alg_sig_t *init_alg_sig(int sig_len, int gf_w)
   }
 
   if (gf_w == 8) {
-    return init_alg_sig_w8(jerasure_sohandle, sig_len);
+    return init_alg_sig_w8(sig_len);
   } else if (gf_w == 16) {
-    return init_alg_sig_w16(jerasure_sohandle, sig_len);
+    return init_alg_sig_w16(sig_len);
   }
   return NULL;
 }
@@ -254,7 +215,6 @@ void destroy_alg_sig(alg_sig_t* alg_sig_handle)
   }
 
   alg_sig_handle->mult_routines.galois_uninit_field(alg_sig_handle->gf_w);
-  dlclose(alg_sig_handle->jerasure_sohandle);
 
   int num_components = alg_sig_handle->sig_len / alg_sig_handle->gf_w;
 

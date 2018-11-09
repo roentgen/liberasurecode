@@ -177,6 +177,9 @@ void* liberasurecode_backend_open(ec_backend_t instance)
 {
     if (NULL == instance)
         return NULL;
+    if (strncmp(instance->common.soname, "libJerasure", 11) == 0)
+        return (void *)-1;
+
     /* Use RTLD_LOCAL to avoid symbol collisions */
     return dlopen(instance->common.soname, RTLD_LAZY | RTLD_LOCAL);
 }
@@ -184,6 +187,9 @@ void* liberasurecode_backend_open(ec_backend_t instance)
 int liberasurecode_backend_close(ec_backend_t instance)
 {
     if (NULL == instance || NULL == instance->desc.backend_sohandle)
+        return 0;
+
+    if (strncmp(instance->common.soname, "libJerasure", 11) == 0)
         return 0;
 
     dlclose(instance->desc.backend_sohandle);
